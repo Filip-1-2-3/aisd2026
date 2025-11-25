@@ -1,0 +1,461 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{polski}
+\usepackage{listings}
+\usepackage{pgfplots}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{pgfplotstable}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage{amsmath,amssymb}
+\usepgfplotslibrary{fillbetween}
+\geometry{margin=2.2cm}
+\pgfplotsset{compat=1.18}
+
+% --- 6 wyraźnych kolorów i wspólny styl osi ---
+\definecolor{cBlue}{RGB}{33,113,181}
+\definecolor{cOrange}{RGB}{230,85,13}
+\definecolor{cGreen}{RGB}{49,163,84}
+\definecolor{cPurple}{RGB}{117,107,177}
+\definecolor{cBrown}{RGB}{166,97,26}
+\definecolor{cPink}{RGB}{231,41,138}
+
+\pgfplotsset{
+	myaxis/.style={
+		width=0.9\linewidth, height=7cm,
+		xlabel={$n$}, ylabel={czas [$\mu$s]},
+		grid=both,
+		legend pos=north west, legend cell align=left,
+		title style={yshift=6pt}
+	},
+	linearxy/.style={xmode=linear, ymode=linear},
+	logxy/.style={xmode=log, ymode=log}
+}
+
+% --- listings (C++) ---
+\lstset{
+	language=C++,
+	basicstyle=\ttfamily\small,
+	keywordstyle=\bfseries,
+	commentstyle=\itshape,
+	numbers=left,
+	numberstyle=\tiny,
+	stepnumber=1,
+	numbersep=8pt,
+	showstringspaces=false,
+	breaklines=true,
+	frame=single,
+	tabsize=2
+}
+
+\title{Analiza porównawcza algorytmów: Radix, Quick oraz Bucket Sort}
+\author{}
+\date{}
+
+\begin{document}
+	\maketitle
+	
+	\section{Wprowadzenie}
+	W niniejszym sprawozdaniu przedstawiono implementację i analizę wydajności algorytmów sortowania:
+	
+	\begin{enumerate}
+		\item \texttt{RADIX\_SORT} (sortowanie pozycyjne, baza $d=10$ oraz $d=1024$),
+		\item \texttt{QUICK\_SORT} (klasyczne sortowanie szybkie),
+		\item \texttt{QUICK\_SORT\_MOD} (modyfikacja z podziałem na 3 części / dual pivot),
+		\item \texttt{BUCKET\_SORT\_MOD} (sortowanie kubełkowe dla dowolnych danych).
+	\end{enumerate}
+	
+	Dla tablic o różnych rozmiarach zmierzono czas działania algorytmów. Dodatkowo zbadano wpływ wyboru podstawy $d$ na wydajność algorytmu Radix Sort.
+	
+	\section{Metodyka pomiarów}
+	Pomiary wykonano w języku C++ z użyciem \texttt{std::chrono::high\_resolution\_clock} i zapisem wyników do plików CSV. Metodyka zapewniała sprawiedliwe porównanie:
+	
+	\paragraph{Rozmiary i powtórzenia.}
+	Dla każdego $n \in \{100, 200, 500, \dots, 100000\}$ wykonano 10 niezależnych prób. W każdej próbie generowano nowy zestaw danych losowych, a następnie każdy algorytm otrzymywał \textbf{kopię} tego samego zestawu danych. Czas w wynikach jest średnią arytmetyczną z 10 prób.
+	
+	\paragraph{Losowanie danych.}
+	Elementy tablicy losowano z użyciem \texttt{std::mt19937} (Mersenne Twister) z rozkładem jednorodnym w przedziale $[-10^6, 10^6]$.
+	
+	\paragraph{Pomiar czasu.}
+	Czas mierzono w mikrosekundach ($\mu s$). Dla algorytmu \texttt{BUCKET\_SORT} uwzględniono czas konwersji danych do typu \texttt{float}.
+	
+	\section{Najciekawsze fragmenty kodu z wyjaśnieniami}
+	
+	\subsection*{RADIX\_SORT (z obsługą liczb ujemnych)}
+	
+	\begin{lstlisting}
+		static void counting_sort(vector<int>&A, int ile_narny, int pozycja,bool znak)
+		{
+			int n = A.size();
+			vector<int> C (ile_narny,0);
+			vector<int> B (n);
+			
+			//zliczanie wystapien
+			for (int x:A)
+			C[(abs(x)/(int)pow(ile_narny,pozycja))%ile_narny]++;
+			
+			for (int j = 1; j <= ile_narny-1; ++j) 
+			C[j] += C[j - 1]; //tablica ostatnich pojawien
+			
+			
+			for (int i = n - 1; i >= 0; --i) {
+				int wartosc_elementu = A[i];
+				int cyfra=(abs(wartosc_elementu)/(int)pow(ile_narny,pozycja))%ile_narny;
+				// C[wartosc_elementu] zawiera pozycje ostatniego wystapienia tej wartosci
+				int ostateczny_indeks = C[cyfra] - 1; 
+				
+				B[ostateczny_indeks] = wartosc_elementu;
+				
+				C[cyfra]--;
+			}
+			A=B;
+		}
+		
+		void radix(vector<int> &A, int ilosc_cyfr, int ile_narny) //w finalnej wersji tylko modyfikacja do testow
+		{
+			int n=A.size();
+			vector<int> A_positive;
+			vector<int> A_negative;
+			
+			for (int elem:A)
+			{
+				if (elem>=0) A_positive.push_back(elem);
+				else A_negative.push_back(elem);
+			}
+			
+			
+			for (int i=0; i<ilosc_cyfr;i++)
+			{
+				if (!A_negative.empty()) counting_sort(A_negative, ile_narny, i, 0);
+				if (!A_positive.empty()) counting_sort(A_positive, ile_narny, i, 1);
+			}
+			
+			
+			int neg_size=A_negative.size(); 
+			int pos_size = A_positive.size();   
+			for (int i=0; i<neg_size/2; ++i)
+			{
+				int buffer=A_negative[i];
+				A_negative[i]=A_negative[neg_size-i-1];
+				A_negative[neg_size-i-1]=buffer;
+			}
+			
+			//scalenie dodatnich i ujemnych do A
+			for(int i = 0; i < neg_size; i++) A[i] = A_negative[i];
+			for(int i = 0; i < pos_size; i++) A[neg_size + i] = A_positive[i];    
+		}
+	\end{lstlisting}
+	
+	\paragraph{Zasada działania i elastyczna baza.}
+	Algorytm wykorzystuje stabilne sortowanie przez zliczanie (\texttt{counting\_sort}) jako procedurę pomocniczą, wywoływaną dla każdej pozycji cyfry. Kluczową cechą implementacji jest parametryzacja podstawy systemu liczbowego (\texttt{ile\_narny}). Pozwala to na sortowanie nie tylko w systemie dziesiętnym, ale również np. w systemie o podstawie 256 (co odpowiada sortowaniu bajtowemu), znacząco wpływając na liczbę iteracji pętli głównej.
+	
+	\paragraph{Obsługa liczb ujemnych.}
+	Standardowy Radix Sort nie obsługuje liczb ujemnych. W zaprezentowanym rozwiązaniu zastosowano podział tablicy na dwie części: \texttt{A\_positive} i \texttt{A\_negative}.
+	Obie części są sortowane niezależnie na podstawie wartości bezwzględnych (\texttt{abs(x)}). Ponieważ dla liczb ujemnych większa wartość bezwzględna oznacza mniejszą liczbę rzeczywistą, posortowana tablica liczb ujemnych jest w odwrotnej kolejności. Dlatego po zakończeniu sortowania wektor \texttt{A\_negative} jest odwracany, a następnie scalany z wektorem liczb dodatnich.
+	
+	\subsection*{QUICK\_SORT (Klasyczny)}
+	
+	\begin{lstlisting}
+		static int split(vector<int>& A, int start, int end)
+		{
+			int pivot=A[end];
+			int i=start-1;
+			for (int j=start; j<=end-1; j++)
+			{
+				if(A[j]<pivot)
+				{
+					i++;
+					swap(A,i,j);
+				}
+			}
+			swap(A,i+1,end);
+			return i+1;
+		}
+		void quicksort(vector<int>& A, int start, int end)
+		{
+			if (start<end)
+			{
+				int new_pivot=split(A, start, end);
+				quicksort(A, start, new_pivot - 1);
+				quicksort(A, new_pivot + 1, end);
+			}
+		}
+	\end{lstlisting}
+	
+	\paragraph{Mechanika działania.}
+	Standardowa implementacja wykorzystuje schemat partycjonowania Lomuto. Jako element odniesienia (pivot) wybierany jest ostatni element zakresu (\texttt{A[end]}). Indeks \texttt{i} śledzi granicę elementów mniejszych od pivota. Pętla przechodzi przez tablicę, zamieniając elementy mniejsze od pivota na początek zakresu. Na końcu pivot jest wstawiany na swoje docelowe miejsce (\texttt{i+1}), dzieląc tablicę na dwie części, dla których rekurencyjnie wywoływana jest funkcja \texttt{quicksort}.
+	
+	\subsection*{QUICK\_SORT\_MOD (Dual Pivot)}
+	
+	\begin{lstlisting}
+		static pair<int,int> split_into_3(vector<int>& A, int start, int end)
+		{
+			// ewentualna zamiana poczatkowa
+			if(A[start]>A[end])
+			swap(A,start,end);
+			
+			int l_pivot=A[start];
+			int r_pivot=A[end];
+			int R=end;
+			int L=start;
+			int k=start+1;
+			
+			
+			while (k<R)
+			{
+				if (A[k]<l_pivot)
+				{
+					L++;
+					swap(A,L,k);
+					k++;
+				}
+				else if (A[k]>r_pivot)
+				{
+					R--;
+					swap(A,R,k);
+				}
+				else k++;
+			}
+			swap(A,start,L);
+			swap(A,end,R);
+			return {L,R};
+		}
+		void mod_quicksort(vector<int>& A, int start, int end)
+		{
+			if(start<end)
+			{ 
+				pair<int,int> new_pivots=split_into_3(A, start, end);
+				mod_quicksort(A,start,new_pivots.first-1);
+				mod_quicksort(A,new_pivots.first+1, new_pivots.second-1);
+				mod_quicksort(A,new_pivots.second+1,end); 
+			}
+		}
+	\end{lstlisting}
+	
+	\paragraph{Opis modyfikacji (Dual Pivot).}
+	Zastosowano wariant algorytmu QuickSort z dwoma pivotami, co pozwala podzielić tablicę na trzy części w jednym przebiegu partycjonowania. 
+	1. Wybierane są dwa pivoty: lewy (\texttt{l\_pivot} z \texttt{A[start]}) i prawy (\texttt{r\_pivot} z \texttt{A[end]}), przy zapewnieniu warunku $l\_pivot \le r\_pivot$.
+	2. Funkcja \texttt{split\_into\_3} używa trzech indeksów ($L, R, k$) do klasyfikacji elementów:
+	\begin{itemize}
+		\item Elementy mniejsze od \texttt{l\_pivot} trafiają na lewą stronę (zwiększanie $L$).
+		\item Elementy większe od \texttt{r\_pivot} trafiają na prawą stronę (zmniejszanie $R$).
+		\item Elementy pomiędzy pivotami pozostają w środku.
+	\end{itemize}
+	3. Funkcja zwraca parę indeksów nowych pozycji pivotów, a rekurencja wywoływana jest trzykrotnie dla każdego z powstałych podzbiorów. Zwiększa to efektywność dla dużych zbiorów danych poprzez zmniejszenie głębokości drzewa rekurencji.
+	
+	\subsection*{BUCKET\_SORT (Klasyczny i struktury pomocnicze)}
+	
+	\begin{lstlisting}
+		struct Node {
+			float val;
+			Node* next;
+			
+			Node(float v) : val(v), next(nullptr) {}
+		};
+		
+		struct LinkedList {
+			Node* head;
+			
+			LinkedList() : head(nullptr) {}
+			
+			void sortedInsert(float newVal) 
+			{
+				Node* newNode = new Node(newVal);
+				
+				if (head == nullptr || head->val >= newVal) {
+					newNode->next = head;
+					head = newNode;
+				}
+				else {
+					Node* current = head;
+					while (current->next != nullptr && current->next->val < newVal) {
+						current = current->next;
+					}
+					newNode->next = current->next;
+					current->next = newNode;
+				}
+			}
+			
+			~LinkedList() {
+				Node* current = head;
+				while (current != nullptr) {
+					Node* next = current->next;
+					delete current;
+					current = next;
+				}//czyszczenie pamieci
+			}
+		};
+		
+		void bucketsort(vector<float>& A) {
+			if (A.empty()) return;
+			int n = A.size();
+			
+			vector<LinkedList> buckets(n); 
+			
+			for (float val : A) {
+				int bucketIndex = static_cast<int>(std::ceil(static_cast<float>(n) * val)) - 1;
+				
+				if (bucketIndex < 0) bucketIndex = 0;
+				if (bucketIndex >= n) bucketIndex = n - 1; 
+				
+				buckets[bucketIndex].sortedInsert(val);
+			}
+			
+			int index = 0;
+			for (int i = 0; i < n; i++) {
+				Node* current = buckets[i].head; 
+				
+				while (current != nullptr) {
+					A[index++] = current->val;
+					
+					current = current->next;
+				}
+			}
+		}
+	\end{lstlisting}
+	
+	\paragraph{Struktury danych i mechanika.}
+	Algorytm opiera się na tablicy list jednokierunkowych (\texttt{buckets}). Zaimplementowano własną strukturę listy (\texttt{LinkedList}) z węzłami (\texttt{Node}). Kluczowym elementem jest metoda \texttt{sortedInsert}, która realizuje sortowanie przez wstawianie (Insertion Sort) bezpośrednio w momencie dodawania elementu do kubełka. Dzięki temu każdy kubełek jest zawsze posortowany.
+	Wersja klasyczna zakłada, że dane wejściowe znajdują się w przedziale $(0, 1]$. Indeks kubełka wyznaczany jest wzorem $j = \lceil n \cdot A[i] \rceil - 1$. Po dystrybucji danych następuje ich konkatenacja z powrotem do tablicy głównej.
+	
+	\subsection*{BUCKET\_SORT\_MOD (Dowolne dane)}
+	
+	\begin{lstlisting}
+		void mod_bucketsort(std::vector<float>& A) {
+			if (A.empty()) return;
+			int n = A.size();
+			
+			// zakres z uzyciem biblioteki algorithm
+			auto minMax = std::minmax_element(A.begin(), A.end());
+			float minVal = *minMax.first;
+			float maxVal = *minMax.second;
+			
+			if (minVal == maxVal) return; 
+			
+			double range = maxVal - minVal;
+			std::vector<LinkedList> buckets(n); 
+			
+			for (float val : A) {
+				
+				double normalized_val = (val - minVal) / range;
+				
+				int bucketIndex = static_cast<int>(std::floor(static_cast<double>(n) * normalized_val));
+				
+				if (bucketIndex >= n) 
+				bucketIndex = n - 1; 
+				
+				buckets[bucketIndex].sortedInsert(val);
+			}
+			int index = 0;
+			for (int i = 0; i < n; i++) {
+				Node* current = buckets[i].head;
+				while (current != nullptr) {
+					A[index++] = current->val;
+					current = current->next;
+				}
+			}
+		}
+	\end{lstlisting}
+	
+	\paragraph{Opis modyfikacji.}
+	Standardowy Bucket Sort nie obsługuje liczb ujemnych ani wartości spoza zakresu jednostkowego. Zmodyfikowana funkcja \texttt{mod\_bucketsort} rozwiązuje ten problem poprzez normalizację danych:
+	1. Znajdowane są wartości minimalna ($min$) i maksymalna ($max$) w tablicy.
+	2. Każdy element jest skalowany do przedziału $[0, 1)$ za pomocą wzoru:
+	\[ normalized\_val = \frac{val - min}{max - min} \]
+	3. Indeks kubełka obliczany jest na podstawie znormalizowanej wartości: $\lfloor n \cdot normalized\_val \rfloor$.
+	Dzięki temu algorytm działa poprawnie dla dowolnego zakresu liczb rzeczywistych, zachowując liniową złożoność przy założeniu jednostajnego rozkładu danych.
+	
+	\section{Wyniki pomiarów: Porównanie Algorytmów}
+	\centering
+	
+	\subsection{Tabela wyników (czas w $\mu s$)}
+	\pgfplotstabletypeset[
+	col sep=comma,
+	string type,
+	% --- TUTAJ DODAŁEM Radix1024 do listy kolumn ---
+	columns={N,Radix,Radix1024,Quick,QuickMod,BucketMod},
+	columns/N/.style={column name=$n$},
+	columns/Radix/.style={column name={Radix ($d{=}10$)}},
+	columns/Radix1024/.style={column name={Radix ($d{=}1024$)}}, % Lepsza nazwa
+	columns/Quick/.style={column name=Quick},
+	columns/QuickMod/.style={column name=QuickMod},
+	columns/BucketMod/.style={column name=Bucket},
+	every head row/.style={before row=\hline,after row=\hline},
+	every last row/.style={after row=\hline},
+	]{wyniki1.csv}
+	
+	\subsection{Wykresy wydajności}
+	
+	\begin{figure}[H]
+		\centering
+		\begin{tikzpicture}
+			\begin{axis}[myaxis, title={Czas wykonania algorytmów (skala liniowa)}, xlabel={$n$}, ylabel={czas [$\mu$s]}]
+				%----------------------------------------
+				
+				\addplot[name path=A, mark=none, color=gray!70, dashed, thick, domain=0:500000] {0.6*x};
+
+				\addplot[name path=B, mark=none, color=gray!70, dashed, thick, domain=0:500000] {0.22*x};
+				
+				\addplot[color=gray!15, fill opacity=0.6] fill between[of=A and B];
+				% wspólny wpis do legendy dla całego obszaru
+				\addlegendentry{Obszar liniowy $\sim O(n)$}
+				
+				% ----------------------------------------
+				
+				\addplot+[line width=1pt, color=cBlue,   mark=*, mark size=2pt]
+				table[x=N, y=Radix, col sep=comma]{wyniki1.csv}; 
+				\addlegendentry{Radix ($d{=}10$)}
+				
+				\addplot+[line width=1pt, color=cBrown, mark=pentagon*, mark size=2.5pt]
+				table[x=N, y=Radix1024, col sep=comma]{wyniki1.csv}; 
+				\addlegendentry{Radix ($d{=}1024$)}
+				
+				\addplot+[line width=1pt, color=cOrange, mark=square*, mark size=2pt]
+				table[x=N, y=Quick, col sep=comma]{wyniki1.csv}; 
+				\addlegendentry{Quick}
+				
+				\addplot+[line width=1pt, color=cGreen,  mark=triangle*, mark size=2pt]
+				table[x=N, y=QuickMod, col sep=comma]{wyniki1.csv}; 
+				\addlegendentry{QuickMod}
+				
+				\addplot+[line width=1pt, color=cPurple, mark=diamond*, mark size=2pt]
+				table[x=N, y=BucketMod, col sep=comma]{wyniki1.csv}; 
+				\addlegendentry{Bucket}
+			\end{axis}
+		\end{tikzpicture}
+		\caption{Zależność czasu wykonywania od rozmiaru danych $n$. Szary obszar wskazuje teoretyczny trend liniowy.}
+	\end{figure}
+	
+	\section{Analiza Radix Sort: Wpływ podstawy $d$}
+	W tej części zbadano, jak wybór podstawy wpływa na szybkość sortowania dla ustalonego, dużego $N$.
+	
+	\begin{figure}[H]
+		\centering
+		\begin{tikzpicture}
+			\begin{axis}[
+				width=0.9\linewidth, height=7cm,
+				xlabel={Podstawa ($d$)}, ylabel={czas [$\mu$s]},
+				grid=both, xmode=log, log basis x={2},
+				title={Wpływ podstawy na czas Radix Sort (stałe $N$)}
+				]
+				\addplot+[line width=1.2pt, color=cPink, mark=star, mark size=3pt]
+				table[x=Podstawa, y=Czas, col sep=comma]{wyniki2.csv};
+			\end{axis}
+		\end{tikzpicture}
+		\caption{Czas działania Radix Sort w zależności od podstawy systemu liczbowego.}
+	\end{figure}
+	
+	\section{Wnioski}
+	\begin{itemize}
+		\item \textbf{Radix Sort:} Wariant z podstawą $d=1024$ jest znacznie szybszy od standardowego $d=10$ dla dużych $N$, co może wynikać z mniejszej liczby przebiegów pętli (mniejsze $k$) przy efektywnych operacjach bitowych. Wykres wpływu podstawy pokazuje, że optimum wydajności osiągane jest dla $d \in [2^8, 2^{10}]$.
+		
+		\item \textbf{Quick Sort vs Mod:} Zaimplementowana modyfikacja z dwoma pivotami (\texttt{QuickMod}) osiąga konsekwentnie lepsze czasy niż wersja klasyczna. Podział tablicy na trzy części w jednym przebiegu partycjonowania skutecznie zmniejsza głębokość rekurencji, co przekłada się na widoczny zysk wydajnościowy rosnący wraz z $N$.
+		
+		\item \textbf{Bucket Sort:} Algorytm ten, obok zoptymalizowanego Radix Sorta, okazał się najwydajniejszy. Wykres liniowy potwierdza jego złożoność $O(n)$ dla danych o rozkładzie jednostajnym.
+		
+		\item \textbf{Porównanie ogólne:} Wyniki potwierdzają przewagę algorytmów o złożoności liniowej ($O(n)$) nad logarytmiczno-liniowymi ($O(n \log n)$) dla dużych zbiorów danych. Jednakże przykład Radix Sorta ($d=10$) pokazuje, że sama klasa złożoności to nie wszystko — wysokie stałe ukryte w notacji $O$ (np. wolne operacje modulo i duża liczba przebiegów) mogą sprawić, że algorytm liniowy będzie wolniejszy od Quick Sorta. Dopiero odpowiednia optymalizacja (Radix $d=1024$, Bucket) pozwala w pełni wykorzystać potencjał złożoności liniowej.
+	\end{itemize}
+	
+\end{document}
