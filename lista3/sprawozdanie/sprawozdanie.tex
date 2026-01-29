@@ -1,0 +1,374 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{polski}
+\usepackage{listings}
+\usepackage{pgfplots}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{pgfplotstable}
+\usepackage{xcolor}
+\usepackage{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{caption}
+\usepgfplotslibrary{fillbetween}
+\geometry{margin=2.2cm}
+\pgfplotsset{compat=1.18}
+
+% --- Definicje kolorów ---
+\definecolor{cBlue}{RGB}{33,113,181}
+\definecolor{cOrange}{RGB}{230,85,13}
+\definecolor{cGreen}{RGB}{49,163,84}
+\definecolor{cPurple}{RGB}{117,107,177}
+\definecolor{cBrown}{RGB}{166,97,26}
+\definecolor{cPink}{RGB}{231,41,138}
+
+% --- Styl wykresów ---
+\pgfplotsset{
+	myaxis/.style={
+		width=0.9\linewidth, height=7cm,
+		xlabel={$n$ (rozmiar danych)}, ylabel={czas [$\mu$s/ms]},
+		grid=both,
+		legend pos=north west, legend cell align=left,
+		title style={yshift=6pt}
+	},
+	linearxy/.style={xmode=linear, ymode=linear},
+	logxy/.style={xmode=log, ymode=log}
+}
+
+% --- Styl kodu ---
+\lstset{
+	language=C++,
+	basicstyle=\ttfamily\small,
+	keywordstyle=\bfseries,
+	commentstyle=\itshape,
+	numbers=left,
+	numberstyle=\tiny,
+	stepnumber=1,
+	numbersep=8pt,
+	showstringspaces=false,
+	breaklines=true,
+	frame=single,
+	tabsize=2
+}
+
+\title{Analiza algorytmów: Programowanie Dynamiczne i Zachłanne\\(Rod Cutting, LCS, Activity Selector, Huffman)}
+\author{}
+\date{}
+
+\begin{document}
+	\maketitle
+	
+	\section{Wprowadzenie}
+	W sprawozdaniu przedstawiono implementację i analizę wydajności algorytmów rozwiązujących cztery klasyczne problemy optymalizacyjne w zależności od różnych podejść (naiwnych, zachłannych, dynamicznych).
+	
+	\section{Metodyka pomiarów}
+	Pomiary czasu wykonania zaimplementowano w języku C++ przy użyciu biblioteki \texttt{chrono}. Dla każdego algorytmu przeprowadzono serię testów na losowych danych wejściowych o różnym rozmiarze $n$. Wyniki uśredniono, aby zminimalizować błąd pomiarowy.
+	
+	\section{Implementacja i Analiza}
+	
+	% ==========================================
+	% 1. ROD CUTTING
+	% ==========================================
+	\subsection{Cięcie pręta (Rod Cutting)}
+	Problem polega na znalezieniu sposobu pocięcia pręta o długości $n$, aby zmaksymalizować zysk, mając dany cennik.
+	
+	\subsubsection{Implementacja}
+	Zaimplementowano trzy wersje algorytmu:
+	\begin{enumerate}
+		\item \textbf{Naiwna (rekurencyjna):} $O(2^n)$ – sprawdza wszystkie możliwe podziały.
+		\item \textbf{Memoized (rekurencja ze spamiętywaniem):} $O(n^2)$ – zapamiętuje wyniki podproblemów.
+		\item \textbf{Iteracyjna (Bottom-Up):} $O(n^2)$ – wypełnia tablicę od najmniejszych podproblemów.
+	\end{enumerate}
+	\newpage
+	
+	\begin{lstlisting}[caption={Fragment implementacji: Rod Cutting (wersja iteracyjna)}]
+		// Algorytm Bottom-Up o zlozonosci O(n^2).
+		// Rozwiazuje podproblemy od najmniejszej dlugosci preta (j) do n.
+		Solution cut_rod_bottom_up(const vector<int>& p, int n) {
+			vector<int> revenue(n + 1); // Tablica zyskow 
+			vector<int> sol(n + 1); // Tablica rekonstrukcji rozwiazania
+			
+			revenue[0] = 0;
+			
+			// Iterujemy po dlugosciach preta od 1 do n
+			for (int j = 1; j <= n; ++j) {
+				int q = INT_MIN;
+				// Sprawdzamy kazde mozliwe pierwsze ciecie 'i' (od 1 do j)
+				for (int i = 1; i <= j; ++i) {
+					// p[i-1] to cena kawalka o dlugosci i
+					// revenue[j-i] to optymalny zysk dla pozostalej czesci
+					int val = p[i - 1] + revenue[j - i];
+					
+					if (q < val) {
+						q = val;
+						sol[j] = i; // Zapamietujemy optymalne ciecie dla dlugosci j
+					}
+				}
+				revenue[j] = q;
+			}
+			
+			return {revenue[n], sol};
+		}
+	\end{lstlisting}
+	
+	\subsubsection{Wyniki pomiarów}
+	Poniższa tabela oraz wykres przedstawiają czasy wykonania (w mikrosekundach) dla różnych długości pręta.
+	
+	% Tabela Rod Cutting - POPRAWIONE NAZWY KOLUMN
+	\begin{table}[H]
+		\centering
+		\caption{Wyniki pomiarów dla algorytmów Rod Cutting}
+		\pgfplotstabletypeset[
+		col sep=comma,
+		string type,
+		% Uzywamy nazw kolumn z CSV: N, Naiwny, Memoized, Iteracyjny
+		columns={N,Naiwny,Memoized,Iteracyjny},
+		columns/N/.style={column name=$n$, column type={r}},
+		columns/Naiwny/.style={column name={Naiwny [$\mu$s]}, column type={r}},
+		columns/Memoized/.style={column name={Memoized [$\mu$s]}, column type={r}},
+		columns/Iteracyjny/.style={column name={Iteracyjny [$\mu$s]}, column type={r}},
+		every head row/.style={before row=\toprule,after row=\midrule},
+		every last row/.style={after row=\bottomrule},
+		]{rod.csv}
+	\end{table}
+	
+	\begin{figure}[H]
+		\centering
+		\begin{tikzpicture}
+			\begin{axis}[myaxis, title={Rod Cutting: Porównanie rozwiązań dynamicznych}, xlabel={$n$}, ylabel={czas [$\mu$s]}]
+				
+				\addplot+[line width=1pt, color=cGreen, mark=triangle*, mark size=2pt]
+				table[x=N, y=Naiwny, col sep=comma, restrict x to domain=0:26]{rod.csv};
+				\addlegendentry{Naiwny}
+				
+				% Wykres: Memoized
+				\addplot+[line width=1pt, color=cBlue, mark=*, mark size=2pt]
+				table[x=N, y=Memoized, col sep=comma]{rod.csv};
+				\addlegendentry{Memoized}
+				
+				% Wykres: Iteracyjny
+				\addplot+[line width=1pt, color=cOrange, mark=square*, mark size=2pt]
+				table[x=N, y=Iteracyjny, col sep=comma]{rod.csv};
+				\addlegendentry{Iteracyjny}
+				
+			\end{axis}
+		\end{tikzpicture}
+		\caption{Dla dużych $n$ obie wersje dynamiczne działają w czasie wielomianowym, podczas gdy czas wersji naiwnej (widoczny tylko dla małych $n$) rośnie wykładniczo.}
+	\end{figure}
+	
+	% ==========================================
+	% 2. LCS
+	% ==========================================
+	\newpage
+	\subsection{Najdłuższy Wspólny Podciąg (LCS)}
+	Problem LCS polega na znalezieniu najdłuższego ciągu znaków występującego w obu porównywanych napisach w tej samej kolejności (niekoniecznie obok siebie).
+	
+	\subsubsection{Implementacja}
+	Porównano podejście rekurencyjne ze spamiętywaniem oraz iteracyjne.
+	\begin{lstlisting}[caption={Fragment implementacji: LCS (wersja iteracyjna)}]
+		// Algorytm Bottom-Up o zlozonosci O(m*n).
+		// Wypelnia tablice dp, gdzie dp[i][j] to dlugosc LCS dla X[0..i-1] i Y[0..j-1].
+		int run_iterative() {
+			// Inicjalizacja zerami
+			dp_table.assign(m + 1, vector<int>(n + 1, 0));
+			
+			for (int i = 1; i <= m; ++i) {
+				for (int j = 1; j <= n; ++j) {
+					// Jesli znaki sa takie same, wydluzamy podciag znaleziony wczesniej (po skosie)
+					if (X[i - 1] == Y[j - 1]) {
+						dp_table[i][j] = 1 + dp_table[i - 1][j - 1];
+					} 
+					// W przeciwnym razie bierzemy lepszy wynik z sasiadow (gora lub lewo)
+					else {
+						dp_table[i][j] = max(dp_table[i - 1][j], dp_table[i][j - 1]);
+					}
+				}
+			}
+			table_ready = true;
+			return dp_table[m][n];
+		}
+	\end{lstlisting}
+	
+	\subsubsection{Wyniki pomiarów}
+	Testy przeprowadzono na losowych ciągach znaków (DNA). Jednostka czasu: milisekundy.
+	
+	% Tabela LCS (Tu mowiles ze dziala, wiec zostawiam jak bylo)
+	\begin{table}[H]
+		\centering
+		\caption{Porównanie czasów dla LCS}
+		\pgfplotstabletypeset[
+		col sep=comma,
+		string type,
+		columns={N,Memoized,Iteracyjny},
+		columns/N/.style={column name=$n$, column type={r}},
+		columns/Memo/.style={column name={Memoized [ms]}, column type={r}},
+		columns/Iter/.style={column name={Iteracyjny [ms]}, column type={r}},
+		every head row/.style={before row=\toprule,after row=\midrule},
+		every last row/.style={after row=\bottomrule},
+		]{lcs.csv}
+	\end{table}
+	
+	\begin{figure}[H]
+		\centering
+		\begin{tikzpicture}
+			\begin{axis}[myaxis, title={Wydajność LCS ($O(n^2)$)}, xlabel={$n$}, ylabel={czas [ms]}]
+				\addplot+[line width=1pt, color=cPurple, mark=triangle*, mark size=2pt]
+				table[x=N, y=Memoized, col sep=comma]{lcs.csv};
+				\addlegendentry{Memoized}
+				
+				\addplot+[line width=1pt, color=cGreen, mark=diamond*, mark size=2pt]
+				table[x=N, y=Iteracyjny, col sep=comma]{lcs.csv};
+				\addlegendentry{Iteracyjny}
+			\end{axis}
+		\end{tikzpicture}
+		\caption{Wykres potwierdza kwadratową złożoność obliczeniową.}
+	\end{figure}
+	
+	% ==========================================
+	% 3. ACTIVITY SELECTOR
+	% ==========================================
+	\subsection{Wybór zajęć (Activity Selector)}
+	Problem polega na wybraniu maksymalnego podzbioru niekonfliktowych zajęć.
+	
+	\subsubsection{Implementacja}
+	Porównano:
+	\begin{itemize}
+		\item \textbf{Greedy (Zachłanny):} Złożoność zdominowana przez sortowanie $O(n \log n)$. Testowano wersję standardową (sortowanie po czasie zakończenia) i zmodyfikowaną (sortowanie po czasie startu).
+		\item \textbf{DP (Dynamiczne):} Złożoność $O(n^2)$, sprawdza wszystkie możliwe podzbiory w sposób usystematyzowany.
+	\end{itemize}
+	\newpage
+	\begin{lstlisting}[caption={Zmodyfikowany greedy}]
+		// Algorytm zachlanny dla danych posortowanych po czasie startu.
+		// Zlozonosc: O(N log N) (przez sortowanie), sama selekcja O(N).
+		void solve_greedy_start_sorted(vector<Activity> acts) {
+			// 1. Sortowanie rosnaco po czasie ROZPOCZECIA
+			sort(acts.begin(), acts.end(), [](const Activity& a, const Activity& b) {
+				return a.start < b.start;
+			});
+			
+			if (acts.empty()) return;
+			int n = acts.size();
+			
+			// Strategia: Wybieramy zajecie o najpozniejszym starcie (ostatnie w posortowanym wektorze)
+			// i idziemy "w tyl", szukajac kompatybilnych poprzednikow.
+			vector<Activity> result;
+			result.push_back(acts[n - 1]); // Pierwszy wybor (od konca)
+			int last_added_index = n - 1;
+			
+			// Iteracja wsteczna
+			for (int i = n - 2; i >= 0; --i) {
+				// Warunek: koniec aktualnego musi byc <= start poprzednio wybranego
+				if (acts[i].finish <= acts[last_added_index].start) {
+					result.push_back(acts[i]);
+					last_added_index = i;
+				}
+			}
+			// Wynik jest poprawny co do ilosci i zbioru, ale w odwrotnej kolejnosci chronologicznej
+		}
+	\end{lstlisting}
+	
+	\subsubsection{Wyniki pomiarów}
+	Dla dużych $n$ spodziewana jest drastyczna różnica między podejściem $O(n \log n)$ a $O(n^2)$.
+	
+	% Tabela Activity - POPRAWIONE KOLUMNY
+	\begin{table}[H]
+		\centering
+		\caption{Porównanie algorytmów Greedy i DP}
+		\pgfplotstabletypeset[
+		col sep=comma,
+		string type,
+		% Kolumny z CSV: N, Recursive, Iterative, Start_Sorted, DP
+		% Wybieramy do tabeli Iterative i DP (najwazniejsze porownanie)
+		columns={N,Iterative,DP},
+		columns/N/.style={column name=$n$, column type={r}},
+		columns/Iterative/.style={column name={Greedy Iter [ms]}, column type={r}},
+		columns/DP/.style={column name={DP [ms]}, column type={r}},
+		every head row/.style={before row=\toprule,after row=\midrule},
+		every last row/.style={after row=\bottomrule},
+		]{activity.csv}
+	\end{table}
+	
+	\begin{figure}[H]
+		\centering
+		\begin{tikzpicture}
+			\begin{axis}[myaxis, title={Greedy vs DP (Activity Selector)}, xlabel={$n$}, ylabel={czas [ms]}]
+				
+				% Wybieramy Iterative jako reprezentanta Greedy
+				\addplot+[line width=1pt, color=cBlue, mark=*, mark size=2pt]
+				table[x=N, y=Iterative, col sep=comma]{activity.csv};
+				\addlegendentry{Greedy ($O(n \log n)$)}
+				
+				\addplot+[line width=1pt, color=cPink, mark=x, mark size=2pt]
+				table[x=N, y=DP, col sep=comma]{activity.csv};
+				\addlegendentry{DP ($O(n^2)$)}
+				
+			\end{axis}
+		\end{tikzpicture}
+		\caption{Podejście zachłanne deklasuje programowanie dynamiczne dla tego problemu. Krzywa DP rośnie parabolicznie, podczas gdy Greedy pozostaje blisko osi poziomej.}
+	\end{figure}
+	
+	% ==========================================
+	% 4. HUFFMAN
+	% ==========================================
+	\subsection{Kodowanie Huffmana}
+	Zaimplementowano algorytm Huffmana w dwóch wariantach:
+	\begin{enumerate}
+		\item \textbf{Binarny:} Standardowy, używa alfabetu $\{0, 1\}$.
+		\item \textbf{Ternarny:} Zmodyfikowany, używa alfabetu $\{0, 1, 2\}$. Wymaga, aby liczba liści $n$ spełniała warunek $(n-1) \pmod 2 \equiv 0$, w przeciwnym razie dodawane są węzły "dummy".
+	\end{enumerate}
+	
+	\subsubsection{Analiza efektywności kompresji na podstawie danych eksperymentalnych}
+	Dla tekstu wejściowego "Lorem ipsum..." (491 znaków) wygenerowano drzewa Huffmana w dwóch wariantach: binarnym i ternarnym. Poniższa tabela przedstawia zestawienie wygenerowanych kodów dla wybranych znaków. 
+	
+	Kody ternarne są systematycznie krótsze od binarnych. Na przykład dla spacji kod skraca się z 3 bitów do 2 trytów, a dla rzadkiego znaku 'Q' z 9 bitów do 5 trytów.
+	
+	\begin{table}[H]
+		\centering
+		\caption{Bezpośrednie porównanie kodów binarnych i ternarnych (wybrane znaki)}
+		\begin{tabular}{lllc}
+			\toprule
+			\textbf{Znak} & \textbf{Kod Binarny (0-1)} & \textbf{Kod Ternarny (0-2)} & \textbf{Zysk długości} \\
+			\midrule
+			' ' (spacja) & \texttt{101} (3) & \texttt{20} (2) & -1 \\
+			'e' & \texttt{001} (3) & \texttt{11} (2) & -1 \\
+			'a' & \texttt{0101} (4) & \texttt{212} (3) & -1 \\
+			's' & \texttt{1100} (4) & \texttt{00} (2) & -2 \\
+			'p' & \texttt{111101} (6) & \texttt{2222} (4) & -2 \\
+			'L' & \texttt{100111010} (9) & \texttt{02101} (5) & -4 \\
+			'Q' & \texttt{100111011} (9) & \texttt{02102} (5) & -4 \\
+			\bottomrule
+		\end{tabular}
+	\end{table}
+	
+	\noindent
+	Całkowite długości zakodowanych ciągów dla całego tekstu przedstawiają się następująco:
+	
+	\begin{table}[H]
+		\centering
+		\caption{Sumaryczna długość zakodowanego tekstu}
+		\begin{tabular}{lr}
+			\toprule
+			\textbf{Metoda} & \textbf{Całkowita długość} \\
+			\midrule
+			Huffman Binarny & 2058 bitów \\
+			Huffman Ternarny & \textbf{1311 trytów} \\
+			\bottomrule
+		\end{tabular}
+	\end{table}
+	
+	\noindent
+	Stosunek długości wyniósł:
+	$$ \text{Ratio} = \frac{1311}{2058} \approx 0.637 $$
+	
+	\noindent
+	\textbf{Wnioski:} Wynik eksperymentalny ($0.637$) potwierdza teorię informacji. Jeden tryt przenosi więcej informacji niż bit ($\log_2 3 \approx 1.585$ bita). Teoretycznie idealna kompresja pozwoliłaby skrócić zapis do ok. $63.1\%$ oryginalnej długości wyrażonej w bitach. Uzyskany wynik jest bardzo bliski tej granicy.
+	\section{Wnioski końcowe}
+	Przeprowadzone eksperymenty potwierdziły, że dobór odpowiedniego algorytmu jest kluczowy dla wydajności systemu.
+	\begin{itemize}
+		\item W problemach takich jak \textit{Rod Cutting} czy \textit{LCS}, zastosowanie programowania dynamicznego pozwala rozwiązywać problemy w czasie wielomianowym, które naiwnie wymagałyby czasu wykładniczego.
+		\item W przypadku \textit{Activity Selector}, istnienie własności wyboru zachłannego pozwala zredukować złożoność do $O(n \log n)$, co czyni użycie DP ($O(n^2)$) nieefektywnym.
+		\item Dla kodowania Huffmana, zwiększenie podstawy systemu kodowania skraca długość wynikowego napisu, co może być korzystne w przesyłaniu danych.
+	\end{itemize}
+	
+\end{document}
